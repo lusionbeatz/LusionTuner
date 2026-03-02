@@ -38,18 +38,13 @@ jobs:
 
       - name: Patch JUCE and JuceHeader
         run: |
-          # Fix 1: Remove headless include from JuceHeader.h
           grep -v "juce_audio_processors_headless" JuceLibraryCode/JuceHeader.h > /tmp/JuceHeader_fixed.h
           mv /tmp/JuceHeader_fixed.h JuceLibraryCode/JuceHeader.h
-          echo "JuceHeader fix done"
-
-          # Fix 2: Comment out the VST2/VST3 conflict #error in JUCE source
           FILE="JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp"
           if [ -f "$FILE" ]; then
             sed -i '' 's/#error You may have a conflict with parameter automation/\/\/ #error You may have a conflict with parameter automation/' "$FILE"
             echo "VST3 patch done"
           else
-            echo "VST3 file not found at $FILE"
             find JUCE -name "juce_audio_plugin_client_VST3.cpp" 2>/dev/null
           fi
 
@@ -71,25 +66,17 @@ jobs:
             --target "${{ env.PLUGIN_NAME }}_VST3" "${{ env.PLUGIN_NAME }}_AU" \
             --parallel $(sysctl -n hw.logicalcpu)
 
-      - name: Locate build artefacts
-        id: locate
+      - name: Package artefacts
         run: |
+          mkdir -p artifacts
           VST3=$(find ${{ env.BUILD_DIR }} -name "${{ env.PLUGIN_NAME }}.vst3" -type d | head -1)
           AU=$(find ${{ env.BUILD_DIR }} -name "${{ env.PLUGIN_NAME }}.component" -type d | head -1)
           echo "VST3: $VST3"
           echo "AU: $AU"
           [ -n "$VST3" ] || { echo "VST3 not found"; exit 1; }
-          [ -n "$AU"   ] || { echo "AU not found"; exit 1; }
-          echo "vst3_path=$VST3" >> "$GITHUB_OUTPUT"
-          echo "au_path=$AU" >> "$GITHUB_OUTPUT"
-
-      - name: Package artefacts
-        run: |
-          mkdir -p artifacts
-          cd "${{ steps.locate.outputs.vst3_path }}/.."
-          zip -r "${{ github.workspace }}/artifacts/${{ env.PLUGIN_NAME }}_macOS_VST3.zip" "${{ env.PLUGIN_NAME }}.vst3"
-          cd "${{ steps.locate.outputs.au_path }}/.."
-          zip -r "${{ github.workspace }}/artifacts/${{ env.PLUGIN_NAME }}_macOS_AU.zip" "${{ env.PLUGIN_NAME }}.component"
+          [ -n "$AU" ]   || { echo "AU not found"; exit 1; }
+          zip -r "artifacts/${{ env.PLUGIN_NAME }}_macOS_VST3.zip" "$VST3"
+          zip -r "artifacts/${{ env.PLUGIN_NAME }}_macOS_AU.zip" "$AU"
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
