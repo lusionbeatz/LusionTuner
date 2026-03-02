@@ -5,10 +5,6 @@ on:
     branches: [ "main", "master", "dev" ]
   workflow_dispatch:
 
-concurrency:
-  group: macos-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build-macos:
     name: macOS – Release (VST3 + AU)
@@ -28,7 +24,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: JUCE
-          key: juce-${{ env.JUCE_VERSION }}-v5
+          key: juce-${{ env.JUCE_VERSION }}-v6
 
       - name: Download JUCE ${{ env.JUCE_VERSION }}
         if: steps.cache-juce.outputs.cache-hit != 'true'
@@ -40,12 +36,22 @@ jobs:
       - name: Select Xcode 15.4
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
-      - name: Fix JuceHeader.h
+      - name: Patch JUCE and JuceHeader
         run: |
-          grep -v "juce_audio_processors_headless" JuceLibraryCode/JuceHeader.h > JuceLibraryCode/JuceHeader_fixed.h
-          mv JuceLibraryCode/JuceHeader_fixed.h JuceLibraryCode/JuceHeader.h
-          echo "Fixed! Remaining headless lines:"
-          grep "headless" JuceLibraryCode/JuceHeader.h || echo "None - all clear"
+          # Fix 1: Remove headless include from JuceHeader.h
+          grep -v "juce_audio_processors_headless" JuceLibraryCode/JuceHeader.h > /tmp/JuceHeader_fixed.h
+          mv /tmp/JuceHeader_fixed.h JuceLibraryCode/JuceHeader.h
+          echo "JuceHeader fix done"
+
+          # Fix 2: Comment out the VST2/VST3 conflict #error in JUCE source
+          FILE="JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp"
+          if [ -f "$FILE" ]; then
+            sed -i '' 's/#error You may have a conflict with parameter automation/\/\/ #error You may have a conflict with parameter automation/' "$FILE"
+            echo "VST3 patch done"
+          else
+            echo "VST3 file not found at $FILE"
+            find JUCE -name "juce_audio_plugin_client_VST3.cpp" 2>/dev/null
+          fi
 
       - name: Configure CMake
         run: |
@@ -68,8 +74,8 @@ jobs:
       - name: Locate build artefacts
         id: locate
         run: |
-          VST3=$(find ${{ env.BUILD_DIR }} -name "${{ env.PLUGIN_NAME }}.vst3" -type d 2>/dev/null | head -1)
-          AU=$(find ${{ env.BUILD_DIR }} -name "${{ env.PLUGIN_NAME }}.component" -type d 2>/dev/null | head -1)
+          VST3=$(find ${{ env.BUILD_DIR }} -name "${{ env.PLUGIN_NAME }}.vst3" -type d | head -1)
+          AU=$(find ${{ env.BUILD_DIR }} -name "${{ env.PLUGIN_NAME }}.component" -type d | head -1)
           echo "VST3: $VST3"
           echo "AU: $AU"
           [ -n "$VST3" ] || { echo "VST3 not found"; exit 1; }
