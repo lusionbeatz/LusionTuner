@@ -28,14 +28,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: JUCE
-          key: juce-${{ env.JUCE_VERSION }}-v4
+          key: juce-${{ env.JUCE_VERSION }}-v5
 
       - name: Download JUCE ${{ env.JUCE_VERSION }}
         if: steps.cache-juce.outputs.cache-hit != 'true'
         run: |
-          curl -L \
-            "https://github.com/juce-framework/JUCE/archive/refs/tags/${{ env.JUCE_VERSION }}.zip" \
-            -o juce.zip
+          curl -L "https://github.com/juce-framework/JUCE/archive/refs/tags/${{ env.JUCE_VERSION }}.zip" -o juce.zip
           unzip -q juce.zip
           mv JUCE-${{ env.JUCE_VERSION }} JUCE
 
@@ -44,54 +42,10 @@ jobs:
 
       - name: Fix JuceHeader.h
         run: |
-          python3 - << 'PYEOF'
-          content = """/*
-              JUCE Header - macOS CI build
-          */
-          #pragma once
-
-          #include "AppConfig.h"
-
-          #include <juce_audio_basics/juce_audio_basics.h>
-          #include <juce_audio_devices/juce_audio_devices.h>
-          #include <juce_audio_formats/juce_audio_formats.h>
-          #include <juce_audio_plugin_client/juce_audio_plugin_client.h>
-          #include <juce_audio_processors/juce_audio_processors.h>
-          #include <juce_audio_utils/juce_audio_utils.h>
-          #include <juce_core/juce_core.h>
-          #include <juce_data_structures/juce_data_structures.h>
-          #include <juce_dsp/juce_dsp.h>
-          #include <juce_events/juce_events.h>
-          #include <juce_graphics/juce_graphics.h>
-          #include <juce_gui_basics/juce_gui_basics.h>
-          #include <juce_gui_extra/juce_gui_extra.h>
-
-          #include "BinaryData.h"
-
-          #if ! DONT_SET_USING_JUCE_NAMESPACE
-           using namespace juce;
-          #endif
-
-          #if ! JUCE_DONT_DECLARE_PROJECTINFO
-          namespace ProjectInfo
-          {
-              const char* const  projectName    = "LusionTuner";
-              const char* const  companyName    = "LusionBeatz";
-              const char* const  versionString  = "1.0.0";
-              const int          versionNumber  = 0x10000;
-          }
-          #endif
-          """
-          with open("JuceLibraryCode/JuceHeader.h", "w") as f:
-              f.write(content)
-          print("JuceHeader.h written successfully")
-          with open("JuceLibraryCode/JuceHeader.h") as f:
-              for line in f:
-                  if "headless" in line:
-                      print("ERROR: headless still present:", line)
-                      exit(1)
-          print("OK: no headless include found")
-          PYEOF
+          grep -v "juce_audio_processors_headless" JuceLibraryCode/JuceHeader.h > JuceLibraryCode/JuceHeader_fixed.h
+          mv JuceLibraryCode/JuceHeader_fixed.h JuceLibraryCode/JuceHeader.h
+          echo "Fixed! Remaining headless lines:"
+          grep "headless" JuceLibraryCode/JuceHeader.h || echo "None - all clear"
 
       - name: Configure CMake
         run: |
@@ -108,8 +62,7 @@ jobs:
         run: |
           cmake --build ${{ env.BUILD_DIR }} \
             --config Release \
-            --target "${{ env.PLUGIN_NAME }}_VST3" \
-                     "${{ env.PLUGIN_NAME }}_AU" \
+            --target "${{ env.PLUGIN_NAME }}_VST3" "${{ env.PLUGIN_NAME }}_AU" \
             --parallel $(sysctl -n hw.logicalcpu)
 
       - name: Locate build artefacts
@@ -120,19 +73,17 @@ jobs:
           echo "VST3: $VST3"
           echo "AU: $AU"
           [ -n "$VST3" ] || { echo "VST3 not found"; exit 1; }
-          [ -n "$AU"   ] || { echo "AU not found";   exit 1; }
+          [ -n "$AU"   ] || { echo "AU not found"; exit 1; }
           echo "vst3_path=$VST3" >> "$GITHUB_OUTPUT"
-          echo "au_path=$AU"     >> "$GITHUB_OUTPUT"
+          echo "au_path=$AU" >> "$GITHUB_OUTPUT"
 
       - name: Package artefacts
         run: |
           mkdir -p artifacts
           cd "${{ steps.locate.outputs.vst3_path }}/.."
-          zip -r "${{ github.workspace }}/artifacts/${{ env.PLUGIN_NAME }}_macOS_VST3.zip" \
-               "${{ env.PLUGIN_NAME }}.vst3"
+          zip -r "${{ github.workspace }}/artifacts/${{ env.PLUGIN_NAME }}_macOS_VST3.zip" "${{ env.PLUGIN_NAME }}.vst3"
           cd "${{ steps.locate.outputs.au_path }}/.."
-          zip -r "${{ github.workspace }}/artifacts/${{ env.PLUGIN_NAME }}_macOS_AU.zip" \
-               "${{ env.PLUGIN_NAME }}.component"
+          zip -r "${{ github.workspace }}/artifacts/${{ env.PLUGIN_NAME }}_macOS_AU.zip" "${{ env.PLUGIN_NAME }}.component"
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
