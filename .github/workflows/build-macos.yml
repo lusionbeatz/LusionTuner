@@ -9,7 +9,7 @@ on:
   push:
     branches: [ "main", "master", "dev" ]
     paths:
-      - 'Source/**'
+      - 'source/**'
       - 'CMakeLists.txt'
       - 'LusionTuner.jucer'
       - 'JuceLibraryCode/**'
